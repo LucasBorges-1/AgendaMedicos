@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clínica Vidas · Calendário dos médicos</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body data-role="adm">
+
+<!-- ============ LOGIN ============ -->
+<section id="login" class="login" hidden>
+  <form class="login-card" onsubmit="return false">
+    <img src="assets/logo.png" alt="Clínica Vidas" class="login-logo">
+    <h1>Entrar no calendário</h1>
+    <label>E-mail<input type="email" placeholder="seuemail@clinica.com" autocomplete="username"></label>
+    <label>Senha<input type="password" placeholder="Sua senha" autocomplete="current-password"></label>
+    <button class="btn btn-primary" type="submit">Entrar</button>
+    <p class="hint">Esqueceu a senha? Fale com o administrador.</p>
+  </form>
+</section>
+
+<!-- ============ APP ============ -->
+<div id="app" class="app">
+  <header class="topbar no-print">
+    <a href="#calendario" class="brand"><img src="assets/logo.png" alt="Clínica Vidas"></a>
+    <nav class="tabs" aria-label="Seções">
+      <a href="#calendario" data-view="calendario">Calendário</a>
+      <a href="#cardiologista" data-view="cardiologista">Escala do cardiologista</a>
+      <a href="#medicos" data-view="medicos" class="only-edit">Médicos</a>
+      <a href="#usuarios" data-view="usuarios" class="only-adm">Usuários e papéis</a>
+    </nav>
+    <div class="who">
+      <label class="preview" title="Apenas para visualizar o design de cada papel">
+        Ver como
+        <select id="roleSwitch">
+          <option value="adm">Administrador</option>
+          <option value="editor">Responsável</option>
+          <option value="viewer">Visualizador</option>
+        </select>
+      </label>
+      <button class="btn btn-ghost" id="btnLogout">Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ======= CALENDÁRIO ======= -->
+    <section class="view" id="view-calendario">
+      <div class="view-head no-print">
+        <div class="month-nav">
+          <button class="icon-btn" id="prevMonth" aria-label="Mês anterior">‹</button>
+          <button class="icon-btn" id="nextMonth" aria-label="Próximo mês">›</button>
+          <button class="btn btn-ghost" id="today">Hoje</button>
+        </div>
+        <div class="actions">
+          <button class="btn btn-ghost only-edit" id="btnFixed">Aplicar dias fixos ao ano</button>
+          <button class="btn btn-outline" id="btnPrint">Imprimir</button>
+          <button class="btn btn-primary" id="btnPdf">Baixar PDF</button>
+        </div>
+      </div>
+
+      <div class="sheet" id="sheet">
+        <h1 class="sheet-title" id="sheetTitle">Novembro de 2026</h1>
+        <div class="grid" id="calGrid" role="table" aria-label="Calendário do mês"></div>
+      </div>
+      <p class="tip no-print only-edit">Clique em um dia para adicionar ou remover médicos.</p>
+    </section>
+
+    <!-- ======= ESCALA CARDIOLOGISTA ======= -->
+    <section class="view" id="view-cardiologista" hidden>
+      <div class="view-head no-print">
+        <div>
+          <h1>Escala do cardiologista</h1>
+          <p class="muted">Quem está na escala em cada domingo. Esses nomes aparecem no calendário.</p>
+        </div>
+        <div class="actions">
+          <select class="select" id="escalaMes"><option>Novembro de 2026</option><option>Dezembro de 2026</option></select>
+          <button class="btn btn-primary only-edit">Salvar escala</button>
+        </div>
+      </div>
+      <div class="panel">
+        <table class="table" id="escalaTable">
+          <thead><tr><th>Domingo</th><th>Pessoa 1</th><th>Pessoa 2</th><th class="only-edit"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======= MÉDICOS ======= -->
+    <section class="view" id="view-medicos" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Médicos</h1>
+          <p class="muted">Cadastre o médico aqui e depois adicione ao dia no calendário.</p>
+        </div>
+        <button class="btn btn-primary" data-open="modalMedico">Cadastrar médico</button>
+      </div>
+      <div class="panel">
+        <table class="table">
+          <thead><tr><th>Nome no calendário</th><th>Tipo</th><th>Dias fixos</th><th></th></tr></thead>
+          <tbody id="medicosBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======= USUÁRIOS ======= -->
+    <section class="view" id="view-usuarios" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Usuários e papéis</h1>
+          <p class="muted">Defina quem pode editar os dias e quem só pode visualizar.</p>
+        </div>
+        <button class="btn btn-primary" data-open="modalUsuario">Convidar usuário</button>
+      </div>
+      <div class="role-legend">
+        <div><strong>Administrador</strong><span>Tudo, inclusive definir papéis.</span></div>
+        <div><strong>Responsável</strong><span>Cadastra médicos e edita os dias.</span></div>
+        <div><strong>Visualizador</strong><span>Vê o calendário e baixa o PDF.</span></div>
+      </div>
+      <div class="panel">
+        <table class="table">
+          <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th></th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ MODAIS ============ -->
+<div class="overlay" id="modalDia" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="diaTitulo">
+    <h2 id="diaTitulo">Dia 4 de novembro</h2>
+    <ul class="chips" id="diaLista"></ul>
+    <div class="row">
+      <label class="grow">Adicionar médico
+        <select id="diaMedico"></select>
+      </label>
+      <label>Observação
+        <select id="diaTag">
+          <option value="">Nenhuma</option>
+          <option>T</option><option>M</option><option>DT</option><option>ESP</option>
+          <option>ATÉ 17H</option><option>CON</option><option>PROC</option><option>PSI</option>
+          <option>BIOP</option><option>AP.</option><option>CANCEL</option>
+        </select>
+      </label>
+      <button class="btn btn-primary">Adicionar</button>
+    </div>
+    <label class="check"><input type="checkbox"> Marcar como feriado</label>
+    <div class="modal-foot"><button class="btn btn-ghost" data-close>Fechar</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="modalMedico" hidden>
+  <form class="modal" onsubmit="return false">
+    <h2>Cadastrar médico</h2>
+    <label>Nome como aparece no calendário<input placeholder="Ex.: RICHART"></label>
+    <fieldset>
+      <legend>Tipo de agenda</legend>
+      <label class="check"><input type="radio" name="tipo" checked> Dias fixos</label>
+      <label class="check"><input type="radio" name="tipo"> Dias variados</label>
+    </fieldset>
+    <fieldset>
+      <legend>Dias da semana fixos</legend>
+      <div class="weekdays">
+        <label><input type="checkbox">Seg</label><label><input type="checkbox">Ter</label>
+        <label><input type="checkbox">Qua</label><label><input type="checkbox">Qui</label>
+        <label><input type="checkbox">Sex</label><label><input type="checkbox">Sáb</label>
+      </div>
+      <p class="hint">Médicos de dias fixos entram automaticamente em todos os meses do ano. Datas extras podem ser adicionadas depois no calendário.</p>
+    </fieldset>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" type="button" data-close>Cancelar</button>
+      <button class="btn btn-primary" type="submit">Salvar médico</button>
+    </div>
+  </form>
+</div>
+
+<div class="overlay" id="modalUsuario" hidden>
+  <form class="modal" onsubmit="return false">
+    <h2>Convidar usuário</h2>
+    <label>Nome<input placeholder="Nome completo"></label>
+    <label>E-mail<input type="email" placeholder="email@clinica.com"></label>
+    <label>Papel
+      <select><option>Visualizador</option><option>Responsável</option><option>Administrador</option></select>
+    </label>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" type="button" data-close>Cancelar</button>
+      <button class="btn btn-primary" type="submit">Enviar convite</button>
+    </div>
+  </form>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
