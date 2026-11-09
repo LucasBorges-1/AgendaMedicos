@@ -10,6 +10,14 @@ Verificado em 09/11/2026 com PostgreSQL 16 local descartável. Nenhum teste de e
 - Impressão Chromium e download PHP validados em fevereiro, agosto e novembro de 2026: seis PDFs com exatamente uma página, nomes e observações presentes, texto dentro dos limites da folha. Conteúdo real com seis médicos por data, abreviações, feriado e escalas. Prévia HTML e PDF conferidos visualmente.
 - Sintaxe PHP e JavaScript e `git diff --check` aprovados.
 
+## Carregamento intermitente do calendário
+
+O aspecto relatado foi reproduzido no Chromium ao manter a requisição do calendário sem resposta: o título aparecia, mas a grade tinha zero células e nenhum aviso. Isso demonstra a falha da interface ao lidar com uma requisição pendente; não identifica a causa da demora no ambiente do usuário.
+
+Após a correção, `tests/loading.cjs` passou em sete cenários simulados: requisição sem resposta com timeout e recuperação sem recarregar a página; recuperação automática de 503; preservação do calendário anterior ao falhar uma atualização; erro de usuários independente do calendário; respostas antigas ignoradas ao navegar rapidamente; resposta incompleta com aviso e nova tentativa; escrita com falha de rede sem repetição automática. O teste usa Playwright e as mesmas variáveis de acesso dos testes de navegador, sem alterar cadastros. As regressões existentes de escala, celular, impressão e PDF também passaram novamente.
+
+As leituras têm limite de 12 segundos por tentativa e podem ser repetidas uma vez; escritas têm limite de 30 segundos e não são repetidas automaticamente. Arquivos CSS e JavaScript da página principal recebem uma versão na URL para renovar o cache após atualizações.
+
 A primeira validação em PHP 8.5 revelou que o login usava o hash antigo na sessão após atualizar o custo da senha. O fluxo foi corrigido e os testes passaram. As execuções finais foram sequenciais, evitando que logins simultâneos de versões diferentes do PHP atualizassem o hash do mesmo administrador durante o teste.
 
 ## Limites

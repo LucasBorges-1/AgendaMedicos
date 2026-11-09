@@ -168,6 +168,8 @@ input[type=month]{max-width:100%}.table textarea{width:100%;min-width:160px;resi
 .modal textarea{width:100%;resize:vertical}.modal h3{font-size:.95rem;margin:2px 0;color:var(--green-700)}
 .row-actions{display:flex;gap:6px;flex-wrap:wrap}.row-actions .btn{padding:6px 10px;font-size:.8rem}
 .empty-state{color:var(--muted);padding:22px 12px;text-align:center;font-size:.9rem}
+.calendar-state{margin:0 0 16px;padding:10px 12px;background:var(--green-100);border-radius:var(--radius);color:var(--green-700);font-size:.88rem}
+#calGrid[inert]{opacity:.65}
 .modal-wide{width:min(680px,100%)}.modal-open{overflow:hidden}
 .dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .stack{display:grid;gap:12px}.divider{border-top:1px solid var(--line);padding-top:18px;margin-top:6px}

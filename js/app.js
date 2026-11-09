@@ -14,19 +14,44 @@ const scheduleDrafts = new Map(), extraScheduleDates = new Set();
 let scheduleSaving = false;
 let lastFocus = null, confirmResolve = null, toastTimer;
 
-async function api(route, method = 'GET', data, params = {}) {
+// Somente leituras são repetidas: uma escrita pode ter sido concluída no servidor.
+async function api(route, method = 'GET', data, params = {}, {signal} = {}) {
   const url = new URL('api/index.php', location.href);
   url.search = new URLSearchParams({rota: route, ...params}).toString();
-  const response = await fetch(url, {method, credentials:'same-origin',
-    headers: {'Accept':'application/json', ...(method !== 'GET' ? {'Content-Type':'application/json','X-CSRF-Token': $('meta[name="csrf-token"]').content} : {})},
-    ...(data === undefined ? {} : {body:JSON.stringify(data)})});
-  let result;
-  try { result = await response.json(); } catch { throw new Error('O servidor não respondeu corretamente. Tente novamente.'); }
-  if (!response.ok) {
-    if (response.status === 401) { location.assign('login.php'); throw new Error('Sessão encerrada.'); }
-    throw new Error(result.erro || 'Não foi possível concluir a operação.');
+  for (let attempt=0; ; attempt++) {
+    const controller=new AbortController();
+    let timedOut=false;
+    const cancel=()=>controller.abort();
+    if(signal?.aborted) cancel();
+    else signal?.addEventListener('abort',cancel,{once:true});
+    const timeout=setTimeout(()=>{ timedOut=true; controller.abort(); },method==='GET'?12000:30000);
+    let failure;
+    try {
+      const response=await fetch(url,{method,credentials:'same-origin',signal:controller.signal,cache:'no-store',
+        headers:{'Accept':'application/json',...(method!=='GET'?{'Content-Type':'application/json','X-CSRF-Token':$('meta[name="csrf-token"]').content}:{})},
+        ...(data===undefined?{}:{body:JSON.stringify(data)})});
+      if(response.status===401) { location.assign('login.php'); throw new Error('Sessão encerrada.'); }
+      let result;
+      try { result=await response.json(); }
+      catch(error) {
+        if(controller.signal.aborted) throw error;
+        throw Object.assign(new Error('O servidor não respondeu corretamente. Tente novamente.'),{retryable:true});
+      }
+      if(!response.ok) throw Object.assign(new Error(result.erro || 'Não foi possível concluir a operação.'),{retryable:[502,503,504].includes(response.status)});
+      return result.data;
+    } catch(error) {
+      if(signal?.aborted) throw error;
+      if(timedOut) failure=Object.assign(new Error(method==='GET'?'A resposta demorou mais que o esperado. Tente novamente.':'O servidor demorou a responder. Confira se a alteração foi salva antes de tentar novamente.'),{retryable:true});
+      else if(error instanceof TypeError) failure=Object.assign(new Error('Não foi possível conectar ao servidor. Confira a conexão e tente novamente.'),{retryable:true});
+      else failure=error;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort',cancel);
+    }
+    if(method!=='GET' || attempt>=1 || !failure.retryable) throw failure;
+    await new Promise(resolve=>setTimeout(resolve,500));
+    if(signal?.aborted) throw new DOMException('Requisição substituída.','AbortError');
   }
-  return result.data;
 }
 
 function toast(message, error = false) {
@@ -93,30 +118,82 @@ function title(month) { const [year,number] = month.split('-').map(Number); retu
 function dateLabel(date) { return new Date(date + 'T12:00:00').toLocaleDateString('pt-BR',{day:'numeric',month:'long',year:'numeric'}); }
 function dateInMonth(day) { return `${selectedMonth}-${String(day).padStart(2,'0')}`; }
 
-async function refresh() {
-  const version = ++requestVersion;
-  model = null;
-  $('#escalaTable tbody').innerHTML = '<tr><td colspan="4" class="empty-state">Carregando escala…</td></tr>';
-  $('#sheet').setAttribute('aria-busy','true');
-  $('#sheetTitle').textContent = title(selectedMonth);
-  $('#calendarMonth').value = $('#escalaMes').value = selectedMonth;
-  $('#pageError').hidden = true;
+let loadController;
+function renderCalendarFrame(month) {
+  const [year,number]=month.split('-').map(Number);
+  const first=new Date(year,number-1,1).getDay(), total=new Date(year,number,0).getDate();
+  let html=DAYS.map(day=>`<div class="dow">${day}</div>`).join('');
+  for(let i=0;i<Math.ceil((first+total)/7)*7;i++) {
+    const day=i-first+1;
+    html+=`<div class="cell ${day<1||day>total?'out':''}">${day>=1&&day<=total?`<span class="num">${day}</span>`:''}</div>`;
+  }
+  $('#calGrid').innerHTML=html;
+  delete $('#calGrid').dataset.loadedMonth;
+  $('#monthCount').textContent='';
+}
+
+async function loadUsers(version,signal) {
+  $('#usersBody').innerHTML='<tr><td colspan="5" class="empty-state">Carregando usuários…</td></tr>';
   try {
-    const [data, users] = await Promise.all([api('calendario','GET',undefined,{mes:selectedMonth}), isAdmin && location.hash === '#usuarios' ? api('usuarios') : Promise.resolve([])]);
-    if (version !== requestVersion) return;
-    model = data; userRows = users;
-    renderCalendar(); renderSchedules(); renderDoctors(); renderTags(); renderUsers();
-    if (selectedDay && !$('#modalDia').hidden) renderDay();
-  } catch (error) {
-    if (version !== requestVersion) return;
-    model = null;
-    $('#calGrid').innerHTML = '';
-    $('#monthCount').textContent = '';
-    $('#pageError').innerHTML = `<p>${esc(error.message)}</p><button class="btn btn-outline" id="retryLoad">Tentar novamente</button>`;
-    $('#pageError').hidden = false;
-    $('#retryLoad').onclick = refresh;
-    toast(error.message,true);
-  } finally { if (version === requestVersion) $('#sheet').setAttribute('aria-busy','false'); }
+    const users=await api('usuarios','GET',undefined,{}, {signal});
+    if(version!==requestVersion) return;
+    if(!Array.isArray(users)) throw new Error('A lista de usuários veio incompleta.');
+    userRows=users; renderUsers();
+  } catch(error) {
+    if(version!==requestVersion) return;
+    $('#usersBody').innerHTML=`<tr><td colspan="5" class="empty-state"><p>${esc(error.message)}</p><button class="btn btn-outline" id="retryUsers">Tentar novamente</button></td></tr>`;
+    $('#retryUsers').onclick=()=>loadUsers(version,signal);
+  }
+}
+
+async function refresh() {
+  const version=++requestVersion, month=selectedMonth;
+  loadController?.abort();
+  loadController=new AbortController();
+  const signal=loadController.signal;
+  model=null;
+  // Preserve o último calendário do mesmo mês. Em outro mês, exiba a grade sem dados.
+  if($('#calGrid').dataset.loadedMonth!==month || !$('#calGrid .cell')) renderCalendarFrame(month);
+  $('#calGrid').inert=true;
+  $('#escalaTable tbody').innerHTML='<tr><td colspan="4" class="empty-state">Carregando escala…</td></tr>';
+  $('#sheet').setAttribute('aria-busy','true');
+  $('#sheetTitle').textContent=title(month);
+  $('#calendarMonth').value=$('#escalaMes').value=month;
+  $('#calendarState').hidden=false;
+  $('#calendarState').textContent='Carregando agenda…';
+  $('#pageError').hidden=true;
+  $('#btnPrint').disabled=$('#btnPdf').disabled=true;
+  updateScheduleSummary();
+  if(isAdmin && location.hash==='#usuarios') loadUsers(version,signal);
+  try {
+    const data=await api('calendario','GET',undefined,{mes:month},{signal});
+    if(version!==requestVersion) return;
+    if(!data || data.mes!==month || !['agendamentos','escalas','feriados','medicos','abreviacoes'].every(key=>Array.isArray(data[key]))) {
+      throw new Error('Os dados da agenda vieram incompletos. Tente novamente.');
+    }
+    model=data;
+    renderCalendar(); renderSchedules(); renderDoctors(); renderTags();
+    if(selectedDay && !$('#modalDia').hidden) renderDay();
+    $('#calGrid').dataset.loadedMonth=month;
+    $('#calGrid').inert=false;
+    $('#calendarState').hidden=true;
+    $('#btnPrint').disabled=$('#btnPdf').disabled=false;
+  } catch(error) {
+    if(version!==requestVersion) return;
+    model=null;
+    if(!$('#calGrid .cell')) renderCalendarFrame(month);
+    $('#calendarState').textContent=$('#calGrid').dataset.loadedMonth===month?'Não foi possível atualizar. A última agenda carregada está sendo exibida.':'Os agendamentos ainda não foram carregados.';
+    $('#calendarState').hidden=false;
+    $('#escalaTable tbody').innerHTML='<tr><td colspan="4" class="empty-state">Não foi possível carregar a escala. Use “Tentar novamente” acima.</td></tr>';
+    $('#pageError').innerHTML=`<p>${esc(error.message)}</p><button class="btn btn-outline" id="retryLoad">Tentar novamente</button>`;
+    $('#pageError').hidden=false;
+    $('#retryLoad').onclick=refresh;
+  } finally {
+    if(version===requestVersion) {
+      $('#sheet').setAttribute('aria-busy','false');
+      updateScheduleSummary();
+    }
+  }
 }
 
 function renderCalendar() {
@@ -156,7 +233,8 @@ function renderSchedules() {
 function updateScheduleSummary() {
   const pending=[...scheduleDrafts.keys()].filter(date=>date.startsWith(selectedMonth+'-')).length;
   const count=model?.escalas.length || 0;
-  $('#scaleSummary').textContent=`${title(selectedMonth)} · ${count} ${count===1?'data cadastrada':'datas cadastradas'}${pending?` · ${pending} com alterações não salvas`:''}`;
+  const state=model?`${count} ${count===1?'data cadastrada':'datas cadastradas'}`:$('#sheet').getAttribute('aria-busy')==='true'?'Carregando escala…':'Escala indisponível até concluir o carregamento.';
+  $('#scaleSummary').textContent=`${title(selectedMonth)} · ${state}${pending?` · ${pending} com alterações não salvas`:''}`;
   if (canEdit) $('#saveAllScales').disabled=!pending || scheduleSaving || !model;
 }
 $('#escalaTable').addEventListener('input', event=>{

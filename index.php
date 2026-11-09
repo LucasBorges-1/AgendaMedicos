@@ -12,8 +12,8 @@ $labels = ['adm'=>'Administrador','editor'=>'Responsável','viewer'=>'Visualizad
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="<?= e($_SESSION['csrf']) ?>">
 <title>Clínica Vidas · Agenda médica</title>
-<link rel="icon" href="img/logo.png"><link rel="stylesheet" href="css/styles.css">
-<script src="js/app.js" defer></script>
+<link rel="icon" href="img/logo.png"><link rel="stylesheet" href="css/styles.css?v=<?= filemtime(__DIR__.'/css/styles.css') ?>">
+<script src="js/app.js?v=<?= filemtime(__DIR__.'/js/app.js') ?>" defer></script>
 </head>
 <body data-role="<?= e($user['papel']) ?>" data-user-id="<?= e($user['id_usuario']) ?>" data-month="<?= date('Y-m') ?>">
 <div id="app" class="app">
@@ -37,7 +37,7 @@ $labels = ['adm'=>'Administrador','editor'=>'Responsável','viewer'=>'Visualizad
           <button class="btn btn-outline" id="btnPrint">Imprimir</button><button class="btn btn-primary" id="btnPdf">Baixar PDF</button>
         </div>
       </div>
-      <div class="sheet" id="sheet" aria-busy="true"><div class="sheet-heading"><div><span class="eyebrow">AGENDA MÉDICA</span><h1 class="sheet-title" id="sheetTitle">Carregando agenda…</h1></div><span class="month-count" id="monthCount"></span></div><div class="grid" id="calGrid" aria-label="Calendário do mês"></div></div>
+      <div class="sheet" id="sheet" aria-busy="true"><div class="sheet-heading"><div><span class="eyebrow">AGENDA MÉDICA</span><h1 class="sheet-title" id="sheetTitle">Carregando agenda…</h1></div><span class="month-count" id="monthCount"></span></div><p id="calendarState" class="calendar-state no-print" role="status">Carregando agenda…</p><div class="grid" id="calGrid" aria-label="Calendário do mês"></div></div>
       <p class="tip no-print"><?= $canEdit ? 'Selecione um dia para editar os médicos, as observações e o feriado.' : 'Selecione um dia para consultar os detalhes da agenda.' ?></p>
     </section>
     <section class="view" id="view-cardiologista" hidden>
