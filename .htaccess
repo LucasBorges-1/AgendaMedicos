@@ -1,0 +1,4 @@
+Options -Indexes
+<FilesMatch "^(\.|conexao\.php|router\.php|README\.md|compose\.yaml|Dockerfile)">
+    Require all denied
+</FilesMatch>

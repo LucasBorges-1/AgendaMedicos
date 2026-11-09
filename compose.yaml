@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_NAME:-agenda_vidas}
+      POSTGRES_USER: ${DB_USER:-agenda_vidas}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no arquivo .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8080:80"
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-agenda_vidas}
+      DB_USER: ${DB_USER:-agenda_vidas}
+      DB_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no arquivo .env}
+      DB_SSLMODE: prefer
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+      SESSION_SECURE: ${SESSION_SECURE:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres_data:
