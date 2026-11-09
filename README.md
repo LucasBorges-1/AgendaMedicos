@@ -10,11 +10,15 @@ Aplicação concluída a partir do layout enviado. O servidor usa PHP sem framew
 - Cadastro, edição, desativação e reativação de médicos e usuários.
 - Dias fixos por médico e geração anual sem duplicidades, preservando datas já editadas e canceladas.
 - Agendamentos diários com abreviação, observação, autor e status: agendado, confirmado, cancelado ou concluído.
-- Escala do cardiologista com até 12 profissionais ordenados por data, observação e edição por domingo. A API também aceita outras datas.
+- Escala do cardiologista com até 12 profissionais por data, navegação entre meses, cadastro em qualquer dia e salvamento individual ou das alterações do mês. Rascunhos permanecem ao navegar entre meses na mesma página; recarregar ou fechar a página exige salvá-los antes.
 - Cadastro de abreviações e legenda atualizada automaticamente.
-- Feriados persistidos, impressão e download de PDF real, gerado no PHP. O PDF inclui calendário e páginas com todos os detalhes e observações.
+- Feriados persistidos, impressão e download de PDF real, gerado no PHP. Impressão e PDF usam uma única folha A4 em paisagem, com siglas e escalas em vermelho, legenda e observações no rodapé. Conteúdo denso reduz a fonte automaticamente.
 
 O banco fornecido representa uma **agenda diária de médicos**, sem horários ou pacientes. Cada médico pode ter um agendamento não cancelado por data. Os nomes do projeto original eram exemplos e não foram importados como registros reais.
+
+## Hospedagem na Vercel com Supabase
+
+Consulte [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md) para configurar as variáveis, executar a migração de sessões e publicar. O projeto inclui roteamento Vercel, runtime comunitário PHP 8.5 e sessões compartilhadas em PostgreSQL. A migração é executada manualmente antes do deploy, nunca automaticamente nas requisições.
 
 ## Instalação local
 

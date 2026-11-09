@@ -15,3 +15,15 @@ function grouped_days(array $data): array {
     ksort($days);
     return $days;
 }
+
+function print_observations(array $data): array {
+    $notes=[];
+    foreach(grouped_days($data) as $date=>$items) {
+        $day=(new DateTimeImmutable($date))->format('d');
+        if (!empty($items['escala']['observacao'])) $notes[]=$day.' · Escala: '.$items['escala']['observacao'];
+        foreach($items['agendamentos']??[] as $item) {
+            if (!empty($item['observacao'])) $notes[]=$day.' · '.$item['medico_nome'].': '.$item['observacao'];
+        }
+    }
+    return $notes;
+}

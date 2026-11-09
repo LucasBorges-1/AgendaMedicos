@@ -27,22 +27,24 @@ final class ApiError extends RuntimeException {
     }
 }
 
+function database_connection(): PDO {
+    $parts = [];
+    foreach (['host'=>'DB_HOST', 'port'=>'DB_PORT', 'dbname'=>'DB_NAME', 'sslmode'=>'DB_SSLMODE'] as $part=>$name) {
+        $value = getenv($name) ?: ['host'=>'127.0.0.1', 'port'=>'5432', 'dbname'=>'agenda_vidas', 'sslmode'=>'prefer'][$part];
+        if (strpbrk($value, ";\r\n") !== false) throw new RuntimeException('Configuração inválida: ' . $name);
+        $parts[] = $part . '=' . $value;
+    }
+    return new PDO('pgsql:' . implode(';', $parts) . ';connect_timeout=5', getenv('DB_USER') ?: 'agenda_vidas', getenv('DB_PASSWORD') ?: '', [
+        PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,
+        // PgBouncer transaction não garante prepared statements entre transações.
+        PDO::ATTR_EMULATE_PREPARES=>true,
+    ]);
+}
+
 function db(): PDO {
     static $connection;
-    if (!$connection) {
-        $parts = [];
-        foreach (['host' => 'DB_HOST', 'port' => 'DB_PORT', 'dbname' => 'DB_NAME', 'sslmode' => 'DB_SSLMODE'] as $part => $name) {
-            $value = getenv($name) ?: ['host' => '127.0.0.1', 'port' => '5432', 'dbname' => 'agenda_vidas', 'sslmode' => 'prefer'][$part];
-            if (strpbrk($value, ";\r\n") !== false) throw new RuntimeException('Configuração inválida: ' . $name);
-            $parts[] = $part . '=' . $value;
-        }
-        $connection = new PDO('pgsql:' . implode(';', $parts) . ';connect_timeout=5', getenv('DB_USER') ?: 'agenda_vidas', getenv('DB_PASSWORD') ?: '', [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-    }
-    return $connection;
+    return $connection ??= database_connection();
 }
 
 function query(string $sql, array $params = []): PDOStatement {
@@ -73,10 +75,17 @@ function start_session(): void {
     if (session_status() === PHP_SESSION_ACTIVE) return;
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
+    $driver = getenv('SESSION_DRIVER') ?: (getenv('VERCEL') ? 'database' : 'files');
+    if ($driver === 'database') {
+        require_once __DIR__ . '/session.php';
+        session_set_save_handler(new DatabaseSessionHandler(), true);
+    } elseif ($driver !== 'files') {
+        throw new RuntimeException('SESSION_DRIVER inválido.');
+    }
     if (getenv('SESSION_PATH')) session_save_path(getenv('SESSION_PATH'));
     session_name(getenv('SESSION_NAME') ?: 'agenda_vidas');
-    session_set_cookie_params(['httponly' => true, 'secure' => filter_var(getenv('SESSION_SECURE') ?: 'false', FILTER_VALIDATE_BOOLEAN) || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'), 'samesite' => 'Lax', 'path' => '/']);
-    if (!session_start()) throw new RuntimeException('O diretório de sessões do PHP não está disponível para gravação.');
+    session_set_cookie_params(['httponly' => true, 'secure' => filter_var(getenv('SESSION_SECURE') ?: (getenv('VERCEL') ? 'true' : 'false'), FILTER_VALIDATE_BOOLEAN) || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'), 'samesite' => 'Lax', 'path' => '/']);
+    if (!session_start()) throw new RuntimeException('Não foi possível iniciar a sessão. Confira o driver e suas migrações/configuração.');
     if (isset($_SESSION['last_activity']) && time() - $_SESSION['last_activity'] > 7200) {
         $_SESSION = [];
         session_regenerate_id(true);
@@ -96,12 +105,16 @@ function role(string $value): string {
 function current_user(): ?array {
     start_session();
     if (empty($_SESSION['user_id'])) return null;
+    static $cachedUser = null, $cachedKey = null;
+    $key = $_SESSION['user_id'] . ':' . ($_SESSION['credential'] ?? '');
+    if ($cachedKey === $key) return $cachedUser;
     $user = query('SELECT id_usuario, nome, email, papel, ativo, senha_hash FROM usuario WHERE id_usuario = ?', [$_SESSION['user_id']])->fetch();
     if (!$user || !$user['ativo']) { unset($_SESSION['user_id']); return null; }
     if (!hash_equals($_SESSION['credential'] ?? '', hash('sha256', $user['senha_hash']))) { unset($_SESSION['user_id']); return null; }
     unset($user['senha_hash']);
     $user['papel'] = role($user['papel']);
-    return $user;
+    $cachedKey = $key;
+    return $cachedUser = $user;
 }
 
 function authorize(string $permission = 'read'): array {
@@ -182,5 +195,15 @@ function month_range(mixed $value): array {
 }
 
 function e(mixed $value): string { return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+
+function client_ip(): string {
+    if (getenv('VERCEL')) {
+        // Esses cabeçalhos são definidos pela borda da Vercel, não pelo PHP interno.
+        $forwarded=$_SERVER['HTTP_X_VERCEL_FORWARDED_FOR'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+        $ip=trim(explode(',', $forwarded)[0]);
+        if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+    }
+    return $_SERVER['REMOTE_ADDR'] ?? 'local';
+}
 
 if (PHP_SAPI !== 'cli') security_headers();

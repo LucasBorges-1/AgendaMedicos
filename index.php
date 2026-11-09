@@ -41,8 +41,12 @@ $labels = ['adm'=>'Administrador','editor'=>'Responsável','viewer'=>'Visualizad
       <p class="tip no-print"><?= $canEdit ? 'Selecione um dia para editar os médicos, as observações e o feriado.' : 'Selecione um dia para consultar os detalhes da agenda.' ?></p>
     </section>
     <section class="view" id="view-cardiologista" hidden>
-      <div class="view-head"><div><h1>Escala do cardiologista</h1><p class="muted">Organize a equipe de cada domingo. Os nomes aparecem no calendário.</p></div><label>Mês <input type="month" id="escalaMes" min="2000-01" max="2100-12"></label></div>
-      <div class="panel"><table class="table" id="escalaTable"><thead><tr><th>Domingo</th><th>Profissionais</th><th>Observação</th><th>Ações</th></tr></thead><tbody></tbody></table></div>
+      <div class="view-head"><div><h1>Escala do cardiologista</h1><p class="muted">Planeje a equipe de qualquer mês. As escalas aparecem no calendário.</p></div>
+        <div class="month-nav"><button class="icon-btn" id="prevScaleMonth" aria-label="Mês anterior da escala">‹</button><label class="sr-only" for="escalaMes">Mês da escala</label><input type="month" id="escalaMes" min="2000-01" max="2100-12"><button class="icon-btn" id="nextScaleMonth" aria-label="Próximo mês da escala">›</button><button class="btn btn-ghost" id="scaleToday">Mês atual</button></div>
+      </div>
+      <div class="schedule-toolbar"><p id="scaleSummary" class="muted" role="status"></p><?php if ($canEdit): ?><div class="actions"><button class="btn btn-outline" id="newScale">Adicionar outra data</button><button class="btn btn-primary" id="saveAllScales" disabled>Salvar alterações</button></div><?php endif ?></div>
+      <p class="hint" id="scaleHint">Domingos são exibidos automaticamente. Até 12 profissionais por data, um por linha.</p>
+      <div class="panel schedule-panel"><table class="table" id="escalaTable"><thead><tr><th>Data</th><th>Profissionais</th><th>Observação</th><th>Ações</th></tr></thead><tbody></tbody></table></div>
     </section>
     <?php if ($canEdit): ?>
     <section class="view" id="view-medicos" hidden>
@@ -78,6 +82,7 @@ $labels = ['adm'=>'Administrador','editor'=>'Responsável','viewer'=>'Visualizad
   <div class="modal-foot"><button class="btn btn-ghost" data-close>Fechar</button></div>
 </section></div>
 <?php if ($canEdit): ?>
+<div class="overlay" id="modalScale" hidden><form id="scaleDateForm" class="modal" role="dialog" aria-modal="true" aria-labelledby="scaleDateTitle" tabindex="-1"><h2 id="scaleDateTitle">Adicionar data à escala</h2><p class="muted">Escolha qualquer data, inclusive de outro mês.</p><label>Data<input type="date" name="data" min="2000-01-01" max="2100-12-31" required></label><div class="modal-foot"><button class="btn btn-ghost" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit">Abrir data</button></div></form></div>
 <div class="overlay" id="modalMedico" hidden><form id="doctorForm" class="modal" role="dialog" aria-modal="true" aria-labelledby="doctorTitle" tabindex="-1">
   <h2 id="doctorTitle">Cadastrar médico</h2><input type="hidden" name="id_medico"><label>Nome no calendário<input name="nome" required maxlength="150" placeholder="Nome do médico"></label>
   <label>Tipo de agenda<select name="tipo"><option value="variado">Dias variados</option><option value="fixo">Dias fixos</option></select></label>

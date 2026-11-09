@@ -11,9 +11,11 @@ try {
         if ($existing === 0) db()->exec(file_get_contents(ROOT . '/database/schema.sql'));
         elseif ($existing !== count($tables)) throw new RuntimeException('Esquema parcial: revise as sete tabelas originais antes de migrar.');
         db()->exec('CREATE TABLE IF NOT EXISTS app_migration (versao VARCHAR(80) PRIMARY KEY, aplicada_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)');
-        if (!query('SELECT 1 FROM app_migration WHERE versao = ?', ['001_complementos'])->fetchColumn()) {
-            db()->exec(file_get_contents(ROOT . '/database/001_complementos.sql'));
-            query('INSERT INTO app_migration (versao) VALUES (?)', ['001_complementos']);
+        foreach (['001_complementos', '002_sessoes'] as $version) {
+            if (!query('SELECT 1 FROM app_migration WHERE versao = ?', [$version])->fetchColumn()) {
+                db()->exec(file_get_contents(ROOT . '/database/' . $version . '.sql'));
+                query('INSERT INTO app_migration (versao) VALUES (?)', [$version]);
+            }
         }
     });
     echo "Banco atualizado. Execute php bin/create-admin.php para cadastrar o primeiro administrador.\n";

@@ -1,16 +1,21 @@
-# Validação da entrega
+# Validação — Vercel, impressão e escala
 
-Verificado em 09/11/2026 com PHP 8.4.27 e PostgreSQL 17.11, usando bancos locais descartáveis.
+Verificado em 09/11/2026 com PostgreSQL 16 local descartável. Nenhum teste de escrita ou migração foi executado no Supabase da hospedagem.
 
-- 98 verificações HTTP de integração aprovadas: autenticação, CSRF, papéis, CRUD, duplicidades, datas, status, geração anual, feriados, escala, histórico, arquivos privados, impressão, PDF, alteração de senha e revogação de acesso.
-- 12 verificações de interação no DOM aprovadas com JavaScript executado e APIs reais: calendário, médico com dias fixos, agendamento, confirmação/cancelamento, feriado, abreviação/legenda, escala e usuários. Nenhum erro de execução JavaScript nesses fluxos. A ferramenta de teste fica fora do pacote; ela não é uma dependência da aplicação.
-- Os 15 arquivos PHP passaram pela verificação de sintaxe; os três scripts JavaScript também passaram pela verificação de sintaxe do Node.
-- Migração validada em banco vazio e em banco contendo as sete tabelas do SQL fornecido. Repetir a migração foi validado sem reaplicar alterações.
-- PDF aberto com leitor de PDF por código e conferido quanto a acentos, observações, status e páginas de detalhes.
-- Respostas de erro adicionais verificadas para JSON inválido, Content-Type incorreto, booleano inválido, rota inexistente e método não aceito.
+- Pacote da função gerado pelo builder `vercel-php@0.9.0`, com `api/vercel.php` como entrada e Node 22. Arquivos internos necessários presentes; `.env` e SQL fora do pacote. Rotas validadas com `@vercel/routing-utils`.
+- 98 verificações HTTP aprovadas no artefato gerado com o binário PHP 8.5.12 do runtime e sessões no banco. Cobrem login, CSRF, perfis, CRUD, validações, histórico, impressão, PDF, arquivos privados e revogação de acesso.
+- Sessão e CSRF compartilhados entre duas instâncias independentes; logout em uma instância revogou a sessão na outra.
+- Migrações em banco vazio e repetição aprovadas; `001_complementos` e `002_sessoes` registradas, RLS de `app_session` habilitada.
+- Teste Chromium com APIs reais: navegação da escala entre meses, preservação de rascunhos, salvar alterações do mês, persistência após recarregar, cadastro em data fora do domingo e em outro mês, layout móvel sem transbordamento horizontal. Nenhum erro de JavaScript nesses fluxos.
+- Impressão Chromium e download PHP validados em fevereiro, agosto e novembro de 2026: seis PDFs com exatamente uma página, nomes e observações presentes, texto dentro dos limites da folha. Conteúdo real com seis médicos por data, abreviações, feriado e escalas. Prévia HTML e PDF conferidos visualmente.
+- Sintaxe PHP e JavaScript e `git diff --check` aprovados.
 
-## Limites da verificação
+A primeira validação em PHP 8.5 revelou que o login usava o hash antigo na sessão após atualizar o custo da senha. O fluxo foi corrigido e os testes passaram. As execuções finais foram sequenciais, evitando que logins simultâneos de versões diferentes do PHP atualizassem o hash do mesmo administrador durante o teste.
 
-A aparência no Chrome, a responsividade visual e a janela física de impressão não foram verificadas. O ambiente informou desktop habilitado com estado `unknown`, mas não disponibilizou a ferramenta `cua_repl.js`/controle de navegador. Instância: `ccarenv_b64_Y2NhcmVudl83ZTZhYTA3NWIzMmM4MTkxYTFlOTY3OWY5ZjVkYTAzZg`.
+## Limites
 
-Os arquivos Docker/Compose, Apache e Nginx foram fornecidos como opções de instalação e não foram executados nesta validação. O sistema foi executado e testado diretamente com PHP e PostgreSQL. Nenhuma publicação em hospedagem externa foi realizada.
+Não foi realizado deploy Vercel nem validação contra o Supabase real: o `.env` permanece na hospedagem. A montagem e os testes locais do runtime não substituem a conferência no serviço publicado. O runtime PHP é comunitário. O ambiente Docker local não possui a biblioteca gráfica usada pela extensão opcional GD do runtime; a aplicação não usa GD, e PDO, sessões e geração PDF foram exercitados.
+
+A pausa automática do plano gratuito do Supabase é uma condição do serviço. Para produção sem essa pausa por inatividade, é necessário um plano apropriado, como Pro. Latência e disponibilidade de produção ainda devem ser medidas depois do deploy. Meses com conteúdo muito denso usam fontes menores para manter a exportação em uma folha.
+
+Instruções de publicação e variáveis estão em [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md).

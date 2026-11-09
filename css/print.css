@@ -1,0 +1,33 @@
+/* Medidas iguais no navegador e na impressão, sem páginas extras de detalhes. */
+@page{size:A4 landscape;margin:10mm}
+.print-page{background:#e9ede6}
+.print-page main{max-width:none;padding:20px;overflow-x:auto}
+.print-actions{width:250mm;max-width:100%;margin:0 auto 18px;align-items:center}
+.print-actions p{flex:1;color:var(--muted);font-size:.85rem}
+.print-sheet{box-sizing:border-box;width:250mm;height:184mm;background:#fff;margin:0 auto;padding:0;color:#142216;font-family:Arial,sans-serif}
+.print-sheet h1{height:23mm;margin:0;padding:1mm 2mm 0;font-size:25pt;font-weight:700;color:#385c28;line-height:1.2}
+.print-grid{height:161mm;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:8mm repeat(6,minmax(0,1fr));border-left:.2mm solid #c5deaf;border-top:.2mm solid #c5deaf}
+.print-grid>*{border-right:.2mm solid #c5deaf;border-bottom:.2mm solid #c5deaf;min-width:0;min-height:0}
+.print-dow{background:#c5deaf;text-align:center;display:grid;place-items:center;font-size:9pt;white-space:nowrap}
+.print-cell{padding:1.4mm 2.3mm;display:flex;flex-direction:column;gap:1mm;background:#fff}
+.print-num{display:block;flex:none;text-align:right;color:#3e4c52;font-size:8pt;line-height:1.1}
+.print-cell:not(.outside) .print-num{font-weight:700}
+.print-content{font-size:8.5pt;line-height:1.12;overflow-wrap:anywhere;min-height:0}
+.print-cell .print-content{flex:1}
+.print-name{font-weight:700;text-transform:uppercase}
+.print-tag,.print-scale,.print-holiday{color:#ed0000}
+.print-tag{font-size:.85em;font-weight:700}
+.print-scale,.print-holiday{font-weight:700;text-transform:uppercase;margin:1mm 0}
+.print-status{font-size:.72em;font-weight:400}
+.print-name.cancelled{text-decoration:line-through;color:#666}
+.print-notes{grid-column:3 / 8;padding:2mm 3mm}
+.print-notes .print-content{height:100%;font-size:8pt;text-transform:uppercase;line-height:1.15}
+.print-notes-title{color:#515857;text-transform:none;margin-bottom:1mm;font-weight:400}
+.print-observation{font-weight:400}
+@media print{
+ html,body.print-page{margin:0;padding:0;background:#fff;width:100%}
+ .print-page main{padding:0;overflow:visible}
+ .print-sheet{margin:0 auto;break-inside:avoid;page-break-inside:avoid}
+ .print-actions{display:none!important}
+ *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}

@@ -55,9 +55,31 @@ function schedules(string $start, string $end): array {
 
 function calendar_data(string $month): array {
     [$start,$end]=month_range($month);
-    return ['mes'=>$month,'agendamentos'=>appointments($start,$end),'escalas'=>schedules($start,$end),
-        'feriados'=>query('SELECT * FROM feriado WHERE data >= ? AND data < ? ORDER BY data',[$start,$end])->fetchAll(),
-        'medicos'=>doctors(), 'abreviacoes'=>query('SELECT * FROM abreviacao ORDER BY sigla')->fetchAll()];
+    // Uma ida ao banco por mês, importante quando a função e o Supabase são remotos.
+    $json = query("WITH periodo AS (SELECT CAST(? AS date) AS inicio, CAST(? AS date) AS fim)
+        SELECT json_build_object(
+            'mes', CAST(? AS text),
+            'agendamentos', COALESCE((SELECT json_agg(row_to_json(a)) FROM (
+                SELECT a.*,m.nome AS medico_nome,m.ativo AS medico_ativo,b.sigla,b.descricao AS abreviacao_descricao,u.nome AS usuario_nome
+                FROM agendamento a JOIN medico m USING (id_medico) JOIN usuario u USING (id_usuario)
+                LEFT JOIN abreviacao b USING (id_abreviacao), periodo
+                WHERE a.data>=inicio AND a.data<fim ORDER BY a.data,m.nome,a.id_agendamento
+            ) a),'[]'::json),
+            'escalas', COALESCE((SELECT json_agg(row_to_json(e)) FROM (
+                SELECT e.*,COALESCE((SELECT json_agg(json_build_object('id',p.id,'nome_profissional',p.nome_profissional,'ordem',p.ordem) ORDER BY p.ordem,p.id)
+                FROM escala_profissional p WHERE p.id_escala=e.id_escala),'[]'::json) AS profissionais
+                FROM escala e,periodo WHERE e.data>=inicio AND e.data<fim ORDER BY e.data
+            ) e),'[]'::json),
+            'feriados', COALESCE((SELECT json_agg(row_to_json(f)) FROM (
+                SELECT f.* FROM feriado f,periodo WHERE f.data>=inicio AND f.data<fim ORDER BY f.data
+            ) f),'[]'::json),
+            'medicos', COALESCE((SELECT json_agg(row_to_json(m)) FROM (
+                SELECT m.*,COALESCE((SELECT json_agg(d.dia_semana ORDER BY d.dia_semana) FROM medico_dia_semana d WHERE d.id_medico=m.id_medico),'[]'::json) AS dias_semana
+                FROM medico m ORDER BY m.nome,m.id_medico
+            ) m),'[]'::json),
+            'abreviacoes', COALESCE((SELECT json_agg(row_to_json(b)) FROM (SELECT * FROM abreviacao ORDER BY sigla) b),'[]'::json)
+        )", [$start,$end,$month])->fetchColumn();
+    return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
 }
 
 function save_appointment(array $data, ?int $id, array $user): array {
@@ -166,7 +188,7 @@ function login(array $data): array {
     $email=strtolower(text_field($data,'email',150));
     $password=$data['senha']??'';
     if (!is_string($password) || strlen($password)>1024) throw new ApiError(422,'Senha inválida.');
-    $key=hash('sha256',$_SERVER['REMOTE_ADDR']??'local');
+    $key=hash('sha256',client_ip());
     $attempt=query("INSERT INTO login_tentativa (chave) VALUES (?) ON CONFLICT (chave) DO UPDATE SET
         tentativas=CASE WHEN login_tentativa.inicio < NOW()-interval '15 minutes' THEN 1 ELSE login_tentativa.tentativas+1 END,
         inicio=CASE WHEN login_tentativa.inicio < NOW()-interval '15 minutes' THEN NOW() ELSE login_tentativa.inicio END RETURNING tentativas",[$key])->fetchColumn();
@@ -176,7 +198,10 @@ function login(array $data): array {
     $hash=$user['senha_hash']??'$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.';
     $verified=password_verify($password,$hash);
     if (!$verified || !$user || !$user['ativo']) throw new ApiError(401,'E-mail ou senha inválidos.');
-    if (password_needs_rehash($hash,PASSWORD_DEFAULT)) query('UPDATE usuario SET senha_hash=? WHERE id_usuario=?',[password_hash($password,PASSWORD_DEFAULT),$user['id_usuario']]);
+    if (password_needs_rehash($hash,PASSWORD_DEFAULT)) {
+        $user['senha_hash']=password_hash($password,PASSWORD_DEFAULT);
+        query('UPDATE usuario SET senha_hash=? WHERE id_usuario=?',[$user['senha_hash'],$user['id_usuario']]);
+    }
     query('DELETE FROM login_tentativa WHERE chave=?',[$key]);
     session_regenerate_id(true);
     $_SESSION['user_id']=(int)$user['id_usuario'];

@@ -10,6 +10,8 @@ const canEdit = document.body.dataset.role !== 'viewer';
 const isAdmin = document.body.dataset.role === 'adm';
 const initialMonth = document.body.dataset.month;
 let selectedMonth = initialMonth, selectedDay = null, model = null, userRows = [], requestVersion = 0;
+const scheduleDrafts = new Map(), extraScheduleDates = new Set();
+let scheduleSaving = false;
 let lastFocus = null, confirmResolve = null, toastTimer;
 
 async function api(route, method = 'GET', data, params = {}) {
@@ -85,7 +87,7 @@ function navigate() {
   $$('.view').forEach(node => { node.hidden = node.id !== 'view-' + view; });
   $$('.tabs a').forEach(node => { node.classList.toggle('active',node.dataset.view === view); if (node.dataset.view === view) node.setAttribute('aria-current','page'); else node.removeAttribute('aria-current'); });
 }
-window.addEventListener('hashchange', navigate);
+window.addEventListener('hashchange', () => { navigate(); if (location.hash === '#usuarios') refresh(); });
 
 function title(month) { const [year,number] = month.split('-').map(Number); return `${MONTHS[number-1]} de ${year}`; }
 function dateLabel(date) { return new Date(date + 'T12:00:00').toLocaleDateString('pt-BR',{day:'numeric',month:'long',year:'numeric'}); }
@@ -93,12 +95,14 @@ function dateInMonth(day) { return `${selectedMonth}-${String(day).padStart(2,'0
 
 async function refresh() {
   const version = ++requestVersion;
+  model = null;
+  $('#escalaTable tbody').innerHTML = '<tr><td colspan="4" class="empty-state">Carregando escala…</td></tr>';
   $('#sheet').setAttribute('aria-busy','true');
   $('#sheetTitle').textContent = title(selectedMonth);
   $('#calendarMonth').value = $('#escalaMes').value = selectedMonth;
   $('#pageError').hidden = true;
   try {
-    const [data, users] = await Promise.all([api('calendario','GET',undefined,{mes:selectedMonth}), isAdmin ? api('usuarios') : Promise.resolve([])]);
+    const [data, users] = await Promise.all([api('calendario','GET',undefined,{mes:selectedMonth}), isAdmin && location.hash === '#usuarios' ? api('usuarios') : Promise.resolve([])]);
     if (version !== requestVersion) return;
     model = data; userRows = users;
     renderCalendar(); renderSchedules(); renderDoctors(); renderTags(); renderUsers();
@@ -140,12 +144,47 @@ function renderCalendar() {
 function renderSchedules() {
   const [year,month]=selectedMonth.split('-').map(Number), dates=[];
   for (let day=1; day<=new Date(year,month,0).getDate(); day++) if (new Date(year,month-1,day).getDay()===0) dates.push(dateInMonth(day));
-  model.escalas.forEach(scale=>{ if(!dates.includes(scale.data)) dates.push(scale.data); });
+  [...model.escalas.map(scale=>scale.data), ...extraScheduleDates, ...scheduleDrafts.keys()].filter(date=>date.startsWith(selectedMonth+'-')).forEach(date=>{ if(!dates.includes(date)) dates.push(date); });
   dates.sort();
   $('#escalaTable tbody').innerHTML=dates.map(date=>{
-    const scale=model.escalas.find(item=>item.data===date), names=scale?.profissionais.map(p=>p.nome_profissional).join('\n') || '';
-    return `<tr data-scale-date="${date}"><td><strong>${esc(dateLabel(date))}</strong></td><td>${canEdit?`<label class="sr-only" for="scale-names-${date}">Profissionais em ${esc(dateLabel(date))}, um por linha</label><textarea id="scale-names-${date}" class="scale-names" rows="3" placeholder="Um profissional por linha">${esc(names)}</textarea>`:`<span class="pre-line">${esc(names)||'Sem escala'}</span>`}</td><td>${canEdit?`<label class="sr-only" for="scale-note-${date}">Observação em ${esc(dateLabel(date))}</label><textarea id="scale-note-${date}" class="scale-note" rows="3" maxlength="3000">${esc(scale?.observacao)}</textarea>`:esc(scale?.observacao)||'—'}</td><td>${canEdit?`<div class="row-actions"><button class="btn btn-primary" data-action="save-scale" data-date="${date}">Salvar</button>${scale?`<button class="btn btn-danger" data-action="delete-scale" data-date="${date}">Limpar</button>`:''}</div>`:'Consulta'}</td></tr>`;
+    const scale=model.escalas.find(item=>item.data===date), draft=scheduleDrafts.get(date), names=draft?.names ?? (scale?.profissionais.map(p=>p.nome_profissional).join('\n') || '');
+    return `<tr data-scale-date="${date}"><td><span class="scale-weekday">${DAYS[new Date(date+'T12:00:00').getDay()]}</span><strong>${esc(dateLabel(date))}</strong><span class="scale-state ${draft?'is-dirty':''}">${draft?'Não salvo':scale?'Cadastrada':'Sem equipe'}</span></td><td data-label="Profissionais">${canEdit?`<label class="sr-only" for="scale-names-${date}">Profissionais em ${esc(dateLabel(date))}, um por linha</label><textarea id="scale-names-${date}" class="scale-names" rows="3" maxlength="1811" placeholder="Um profissional por linha">${esc(names)}</textarea>`:`<span class="pre-line">${esc(names)||'Sem escala'}</span>`}</td><td data-label="Observação">${canEdit?`<label class="sr-only" for="scale-note-${date}">Observação em ${esc(dateLabel(date))}</label><textarea id="scale-note-${date}" class="scale-note" rows="3" maxlength="3000">${esc(draft?.note ?? scale?.observacao)}</textarea>`:esc(scale?.observacao)||'—'}</td><td>${canEdit?`<div class="row-actions"><button class="btn btn-primary" data-action="save-scale" data-date="${date}">Salvar</button>${scale?`<button class="btn btn-danger" data-action="delete-scale" data-date="${date}">Limpar</button>`:''}</div>`:'Consulta'}</td></tr>`;
   }).join('');
+  updateScheduleSummary();
+}
+
+function updateScheduleSummary() {
+  const pending=[...scheduleDrafts.keys()].filter(date=>date.startsWith(selectedMonth+'-')).length;
+  const count=model?.escalas.length || 0;
+  $('#scaleSummary').textContent=`${title(selectedMonth)} · ${count} ${count===1?'data cadastrada':'datas cadastradas'}${pending?` · ${pending} com alterações não salvas`:''}`;
+  if (canEdit) $('#saveAllScales').disabled=!pending || scheduleSaving || !model;
+}
+$('#escalaTable').addEventListener('input', event=>{
+  const row=event.target.closest('[data-scale-date]');
+  if (!row || !canEdit || !model) return;
+  const date=row.dataset.scaleDate;
+  const draft={names:$('.scale-names',row).value,note:$('.scale-note',row).value};
+  const scale=model.escalas.find(item=>item.data===date);
+  if (draft.names===(scale?.profissionais.map(p=>p.nome_profissional).join('\n') || '') && draft.note===(scale?.observacao || '')) scheduleDrafts.delete(date);
+  else scheduleDrafts.set(date,draft);
+  const dirty=scheduleDrafts.has(date), state=$('.scale-state',row);
+  state.textContent=dirty?'Não salvo':scale?'Cadastrada':'Sem equipe'; state.classList.toggle('is-dirty',dirty);
+  updateScheduleSummary();
+});
+window.addEventListener('beforeunload', event=>{ if(scheduleDrafts.size) { event.preventDefault(); event.returnValue=''; } });
+async function saveScale(date, draft) {
+  const names=draft.names.split('\n').map(name=>name.trim()).filter(Boolean);
+  if(names.length>12) throw new Error('Informe até 12 profissionais por data.');
+  if(new Set(names).size!==names.length) throw new Error('Não repita nomes na mesma escala.');
+  const result=await api('escalas/'+date,'PUT',{profissionais:names,observacao:draft.note});
+  // Preserve alterações digitadas enquanto a requisição estava em andamento.
+  const current=scheduleDrafts.get(date);
+  if(current?.names===draft.names && current?.note===draft.note) scheduleDrafts.delete(date);
+  if(model && date.startsWith(model.mes+'-')) {
+    model.escalas=model.escalas.filter(item=>item.data!==date);
+    if(result) model.escalas.push(result);
+    renderCalendar(); renderSchedules();
+  }
 }
 
 function renderDoctors() {
@@ -217,6 +256,7 @@ function editUser(id) {
 document.addEventListener('click', async event=>{
   const button=event.target.closest('[data-action]'); if (!button || !model || button.disabled) return;
   const id=Number(button.dataset.id), action=button.dataset.action;
+  if(scheduleSaving && ['save-scale','delete-scale'].includes(action)) return;
   button.disabled=true;
   try {
     if (action==='edit-doctor') return editDoctor(id);
@@ -230,9 +270,14 @@ document.addEventListener('click', async event=>{
       $('#appointmentHeading').textContent='Editar agendamento'; $('#resetAppointment').hidden=false; form.elements.id_medico.focus(); return;
     }
     if (action==='save-scale') {
-      const row=button.closest('tr');
-      await api('escalas/'+button.dataset.date,'PUT',{profissionais:$('.scale-names',row).value.split('\n').map(name=>name.trim()).filter(Boolean),observacao:$('.scale-note',row).value});
-      toast('Escala salva.'); await refresh(); return;
+      if (scheduleSaving) return;
+      scheduleSaving=true; updateScheduleSummary();
+      try {
+        const row=button.closest('tr');
+        await saveScale(button.dataset.date,{names:$('.scale-names',row).value,note:$('.scale-note',row).value});
+        toast('Escala salva.');
+      } finally { scheduleSaving=false; updateScheduleSummary(); }
+      return;
     }
     const configs={
       'disable-doctor':['Desativar este médico? Os agendamentos existentes serão preservados.','medicos/'+id,'Médico desativado.'],
@@ -241,7 +286,7 @@ document.addEventListener('click', async event=>{
       'cancel-appointment':['Cancelar este agendamento? Ele permanecerá no histórico e poderá ser reativado na edição.','agendamentos/'+id,'Agendamento cancelado.'],
       'delete-scale':['Limpar os profissionais e a observação desta escala?','escalas/'+button.dataset.date,'Escala removida.']
     };
-    if (configs[action]) { const [message,route,success]=configs[action]; if (await confirmAction(message)) { await api(route,'DELETE'); toast(success); await refresh(); } }
+    if (configs[action]) { const [message,route,success]=configs[action]; if (await confirmAction(message)) { await api(route,'DELETE'); if(action==='delete-scale') scheduleDrafts.delete(button.dataset.date); toast(success); await refresh(); } }
   } catch(error) { toast(error.message,true); }
   finally { if (button.isConnected) button.disabled=false; }
 });
@@ -288,21 +333,42 @@ onSubmit('#fixedForm',async form=>{
 });
 
 if (canEdit) {
+  $('#newScale').onclick=()=>{ $('#scaleDateForm').elements.data.value=selectedMonth+'-01'; openModal('modalScale'); };
+  $('#saveAllScales').onclick=async()=>{
+    if(scheduleSaving || !model) return;
+    const pending=[...scheduleDrafts.entries()].filter(([date])=>date.startsWith(selectedMonth+'-'));
+    scheduleSaving=true; updateScheduleSummary();
+    try {
+      for(const [date,draft] of pending) await saveScale(date,draft);
+      toast('Todas as alterações deste mês foram salvas.');
+    } catch(error) { toast(error.message+' As alterações pendentes foram mantidas.',true); }
+    finally { scheduleSaving=false; updateScheduleSummary(); }
+  };
   $('#newDoctor').onclick=()=>editDoctor(); $('#newTag').onclick=()=>editTag();
   $('#doctorForm').elements.tipo.onchange=event=>{$('#fixedDays').hidden=event.target.value!=='fixo';};
   $('#resetAppointment').onclick=resetAppointment;
   $('#btnFixed').onclick=()=>{ $('#fixedForm').elements.ano.value=selectedMonth.slice(0,4); openModal('modalFixed'); };
 }
 if (isAdmin) $('#newUser').onclick=()=>editUser();
-function setMonth(month) {
+async function setMonth(month) {
   if (!/^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(month)) { toast('Selecione um mês entre 2000 e 2100.',true); return; }
-  selectedMonth=month; refresh();
+  selectedMonth=month; await refresh();
 }
 function moveMonth(offset) { const [year,month]=selectedMonth.split('-').map(Number); const date=new Date(year,month-1+offset,1); setMonth(`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`); }
 $('#prevMonth').onclick=()=>moveMonth(-1); $('#nextMonth').onclick=()=>moveMonth(1);
-$('#today').onclick=()=>setMonth(initialMonth);
+$('#today').onclick=$('#scaleToday').onclick=()=>setMonth(initialMonth);
+$('#prevScaleMonth').onclick=()=>moveMonth(-1); $('#nextScaleMonth').onclick=()=>moveMonth(1);
 $('#calendarMonth').onchange=event=>setMonth(event.target.value); $('#escalaMes').onchange=event=>setMonth(event.target.value);
 $('#btnPrint').onclick=()=>{ if(model) window.open('imprimir.php?mes='+encodeURIComponent(selectedMonth),'_blank','noopener'); };
 $('#btnPdf').onclick=()=>{ if(model) location.assign('pdf.php?mes='+encodeURIComponent(selectedMonth)); };
 $('#btnLogout').onclick=async()=>{ try { await api('logout','POST'); location.assign('login.php'); } catch(error){ toast(error.message,true); } };
+onSubmit('#scaleDateForm',async form=>{
+  const date=form.elements.data.value;
+  if (!/^(20\d{2}|2100)-(0[1-9]|1[0-2])-\d{2}$/.test(date)) throw new Error('Selecione uma data entre 2000 e 2100.');
+  extraScheduleDates.add(date);
+  closeModal($('#modalScale'));
+  if(selectedMonth!==date.slice(0,7)) await setMonth(date.slice(0,7));
+  else renderSchedules();
+  const input=$('#scale-names-'+date); input?.focus(); input?.scrollIntoView({block:'center',behavior:'smooth'});
+});
 navigate(); refresh();

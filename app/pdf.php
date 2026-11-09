@@ -8,11 +8,11 @@ final class AgendaPdf {
         if ($this->stream!=='') $this->pages[]=$this->stream;
         $this->stream='q 1 1 1 rg 0 0 842 595 re f Q' . "\n";
     }
-    public function text(float $x,float $top,string $text,int $size=9,bool $bold=false,array $color=[0.12,0.17,0.13]): void {
+    public function text(float $x,float $top,string $text,float $size=9,bool $bold=false,array $color=[0.12,0.17,0.13]): void {
         $encoded=iconv('UTF-8','Windows-1252//TRANSLIT',$text);
         $encoded=str_replace(["\\",'(',')',"\r","\n"],["\\\\","\\(","\\)",' ',' '],$encoded===false?'?':$encoded);
         $encoded=preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/','',$encoded);
-        $this->stream.=sprintf("BT /%s %d Tf %.3F %.3F %.3F rg 1 0 0 1 %.2F %.2F Tm (%s) Tj ET\n",$bold?'F2':'F1',$size,...[...$color,$x,595-$top-$size,$encoded]);
+        $this->stream.=sprintf("BT /%s %.2F Tf %.3F %.3F %.3F rg 1 0 0 1 %.2F %.2F Tm (%s) Tj ET\n",$bold?'F2':'F1',$size,...[...$color,$x,595-$top-$size,$encoded]);
     }
     public function box(float $x,float $top,float $width,float $height,array $fill=[1,1,1]): void {
         $this->stream.=sprintf("q %.3F %.3F %.3F rg 0.65 0.78 0.55 RG 0.5 w %.2F %.2F %.2F %.2F re B Q\n",...array_merge($fill,[$x,595-$top-$height,$width,$height]));
@@ -35,7 +35,7 @@ final class AgendaPdf {
     }
 }
 
-function pdf_char_width(string $character,int $size,bool $bold): float {
+function pdf_char_width(string $character,float $size,bool $bold): float {
     // Limites conservadores para Helvetica/Helvetica-Bold, em pontos.
     $ratio=match (true) {
         $character===' ' => 0.28,
@@ -50,7 +50,7 @@ function pdf_char_width(string $character,int $size,bool $bold): float {
     return $size*$ratio;
 }
 
-function pdf_wrap(string $text,float $width,int $size=9,bool $bold=false): array {
+function pdf_wrap(string $text,float $width,float $size=9,bool $bold=false): array {
     $lines=[];
     foreach(explode("\n",str_replace("\r",'', $text)) as $paragraph) {
         $characters=preg_split('//u',$paragraph,-1,PREG_SPLIT_NO_EMPTY) ?: [];
@@ -73,60 +73,80 @@ function pdf_wrap(string $text,float $width,int $size=9,bool $bold=false): array
     return $lines;
 }
 
+// Quebra trechos coloridos mantendo siglas junto dos nomes e sem truncar registros.
+function pdf_rich_lines(array $runs, float $width, float $size): array {
+    $lines=[[]]; $used=0;
+    foreach($runs as [$text,$bold,$color]) {
+        $tokens=preg_split('/(\\s+)/u',$text,-1,PREG_SPLIT_DELIM_CAPTURE|PREG_SPLIT_NO_EMPTY) ?: [];
+        foreach($tokens as $token) {
+            if(str_contains($token,"\n")) { $lines[]=[]; $used=0; continue; }
+            $tokenWidth=0;
+            foreach(preg_split('//u',$token,-1,PREG_SPLIT_NO_EMPTY) ?: [] as $char) $tokenWidth+=pdf_char_width($char,$size,$bold);
+            if(trim($token)!=='' && $used>0 && $tokenWidth<=$width && $used+$tokenWidth>$width) { $lines[]=[]; $used=0; }
+            foreach(preg_split('//u',$token,-1,PREG_SPLIT_NO_EMPTY) ?: [] as $char) {
+                $charWidth=pdf_char_width($char,$size,$bold);
+                if($used+$charWidth>$width && $used>0) { $lines[]=[]; $used=0; }
+                if($used===0 && $char===' ') continue;
+                $index=count($lines)-1; $last=count($lines[$index])-1;
+                if($last>=0 && $lines[$index][$last][1]===$bold && $lines[$index][$last][2]===$color) $lines[$index][$last][0].=$char;
+                else $lines[$index][]=[$char,$bold,$color];
+                $used+=$charWidth;
+            }
+        }
+    }
+    return $lines;
+}
+
+function pdf_fit_runs(AgendaPdf $pdf, array $runs, float $x, float $top, float $width, float $height, float $size=8): void {
+    do {
+        $lines=pdf_rich_lines($runs,$width,$size);
+        if(count($lines)*$size*1.18<=$height) break;
+        $size*=0.94;
+    } while($size>0.2);
+    foreach($lines as $i=>$line) {
+        $left=$x;
+        foreach($line as [$text,$bold,$color]) {
+            $pdf->text($left,$top+$i*$size*1.18,$text,$size,$bold,$color);
+            foreach(preg_split('//u',$text,-1,PREG_SPLIT_NO_EMPTY) ?: [] as $char) $left+=pdf_char_width($char,$size,$bold);
+        }
+    }
+}
+
 function build_calendar_pdf(array $data): string {
     $pdf=new AgendaPdf(); $pdf->page();
-    $pdf->text(28,22,'CLÍNICA VIDAS · AGENDA MÉDICA',10,true,[0.12,0.37,0.17]);
-    $pdf->text(28,40,month_title($data['mes']),22,true,[0.12,0.37,0.17]);
-    $pdf->text(28,70,'Calendário mensal. Os detalhes, status e observações completos estão nas próximas páginas.',8);
+    $black=[0.06,0.09,0.06]; $red=[0.93,0,0]; $green=[0.22,0.36,0.16];
+    $left=66; $width=710/7; $top=96; $height=69;
+    $pdf->text($left+3,39,month_title($data['mes']),25,true,$green);
+    foreach(['Domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'] as $column=>$label) {
+        $pdf->box($left+$column*$width,74,$width,22,[0.773,0.871,0.686]);
+        $pdf->text($left+5+$column*$width,80,$label,8);
+    }
     $days=grouped_days($data); $first=new DateTimeImmutable($data['mes'].'-01');
-    $start=(int)$first->format('w'); $total=(int)$first->format('t'); $weeks=(int)ceil(($start+$total)/7);
-    $width=786/7; $height=426/$weeks;
-    foreach(['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'] as $column=>$label) {
-        $pdf->box(28+$column*$width,91,$width,22,[0.725,0.855,0.62]);
-        $pdf->text(34+$column*$width,97,$label,9,true);
-    }
-    for($i=0;$i<$weeks*7;$i++) {
-        $day=$i-$start+1; $x=28+($i%7)*$width; $top=113+intdiv($i,7)*$height;
-        $pdf->box($x,$top,$width,$height,($day<1||$day>$total)?[0.97,0.98,0.96]:[1,1,1]);
-        if($day<1||$day>$total) continue;
-        $pdf->text($x+$width-18,$top+3,(string)$day,8,true);
-        $date=$data['mes'].'-'.str_pad((string)$day,2,'0',STR_PAD_LEFT); $items=$days[$date]??[]; $lines=[];
-        if(isset($items['feriado'])) foreach(pdf_wrap('FERIADO: '.$items['feriado']['descricao'],$width-8,7,true) as $line) $lines[]=[$line,[0.8,0.08,0.1]];
-        if(isset($items['escala'])) foreach(pdf_wrap('Escala: '.implode(' / ',array_column($items['escala']['profissionais'],'nome_profissional')),$width-8,7,true) as $line) $lines[]=[$line,[0.8,0.08,0.1]];
-        foreach($items['agendamentos']??[] as $item) foreach(pdf_wrap(appointment_label($item),$width-8,7,true) as $line) $lines[]=[$line,$item['status']==='CANCELADO'?[0.55,0.55,0.55]:[0.08,0.1,0.08]];
-        $limit=(int)floor(($height-20)/9); $overflow=count($lines)>$limit;
-        foreach(array_slice($lines,0,$overflow?$limit-1:$limit) as $lineIndex=>[$line,$color]) $pdf->text($x+4,$top+17+$lineIndex*9,$line,7,true,$color);
-        if($overflow) $pdf->text($x+4,$top+17+($limit-1)*9,'Continua nos detalhes →',7,false,[0.12,0.37,0.17]);
-    }
-    $pdf->text(28,551,'Emitido em '.date('d/m/Y H:i').' · Agenda diária · Clínica Vidas',8);
-    $pdf->page(); $page=2; $y=65;
-    $pdf->text(28,25,month_title($data['mes']).' · Detalhes da agenda',17,true,[0.12,0.37,0.17]);
-    $write=function(string $text,bool $bold=false,int $size=9) use ($pdf,&$page,&$y,$data): void {
-        // Largura conservadora para as fontes padrão, inclusive caracteres largos.
-        foreach(pdf_wrap($text,786,$size,$bold) as $line) {
-            if($y>546) {
-                $pdf->text(770,567,(string)$page,8); $pdf->page(); $page++; $y=65;
-                $pdf->text(28,25,month_title($data['mes']).' · Continuação',17,true,[0.12,0.37,0.17]);
-            }
-            $pdf->text(28,$y,$line,$size,$bold); $y+=$size+5;
-        }
-    };
-    if(!$days) $write('Nenhum registro neste mês.');
-    foreach($days as $date=>$items) {
-        $write((new DateTimeImmutable($date))->format('d/m/Y'),true,12);
-        if(isset($items['feriado'])) $write('Feriado: '.$items['feriado']['descricao']);
-        if(isset($items['escala'])) {
-            $write('Escala: '.implode(' · ',array_column($items['escala']['profissionais'],'nome_profissional')),true);
-            if($items['escala']['observacao']) $write('Observação da escala: '.$items['escala']['observacao']);
-        }
+    $start=(int)$first->format('w'); $total=(int)$first->format('t');
+    for($i=0;$i<37;$i++) {
+        $day=$i-$start+1; $x=$left+($i%7)*$width; $y=$top+intdiv($i,7)*$height;
+        $date=$first->modify(($day-1).' days'); $current=$day>=1&&$day<=$total;
+        $pdf->box($x,$y,$width,$height);
+        $pdf->text($x+$width-15,$y+4,$date->format('j'),8,$current,[0.25,0.30,0.32]);
+        $items=$current?($days[$date->format('Y-m-d')]??[]):[]; $runs=[];
+        if(isset($items['feriado'])) $runs[]=[$items['feriado']['descricao']."\n",true,$red];
+        if(isset($items['escala'])) $runs[]=[implode(' - ',array_column($items['escala']['profissionais'],'nome_profissional'))."\n",true,$red];
         foreach($items['agendamentos']??[] as $item) {
-            $write(appointment_label($item),true);
-            if($item['observacao']) $write('Observação: '.$item['observacao']);
+            $runs[]=[$item['medico_nome'],true,$item['status']==='CANCELADO'?[0.4,0.4,0.4]:$black];
+            if($item['sigla']) $runs[]=[' ('.$item['sigla'].')',true,$red];
+            if($item['status']!=='AGENDADO') $runs[]=[' '.['CONFIRMADO'=>'Confirmado','CANCELADO'=>'Cancelado','CONCLUIDO'=>'Concluído'][$item['status']],false,$black];
+            $runs[]=["\n",false,$black];
         }
-        $y+=8;
+        pdf_fit_runs($pdf,$runs,$x+5,$y+18,$width-10,$height-22);
     }
-    $write('Legenda das abreviações',true,12);
-    foreach($data['abreviacoes'] as $item) $write('('.$item['sigla'].') '.$item['descricao']);
-    $pdf->text(770,567,(string)$page,8);
+    $x=$left+2*$width; $y=$top+5*$height;
+    $pdf->box($x,$y,5*$width,$height);
+    $runs=[["Anotações\n",false,[0.32,0.35,0.34]],['O SIGNIFICADO DAS ABREVIAÇÕES: ',false,$black]];
+    foreach($data['abreviacoes'] as $item) {
+        $runs[]=['('.$item['sigla'].') ',true,$red];
+        $runs[]=[$item['descricao'].' · ',false,$black];
+    }
+    foreach(print_observations($data) as $note) $runs[]=[$note.' · ',false,$black];
+    pdf_fit_runs($pdf,$runs,$x+8,$y+7,5*$width-16,$height-14,7.5);
     return $pdf->output();
 }
