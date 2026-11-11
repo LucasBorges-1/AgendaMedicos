@@ -1,0 +1,4 @@
+# Somente index.php é público; arquivos internos ficam bloqueados
+<FilesMatch "^(config|bootstrap)\.php$">
+  Require all denied
+</FilesMatch>
